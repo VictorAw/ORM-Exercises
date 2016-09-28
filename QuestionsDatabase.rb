@@ -12,41 +12,143 @@ class QuestionsDatabase < SQLite3::Database
   end
 end
 
-# class ModelBase
-#   attr_accessor :id, :table
-#
-#   def self.find_by_id(id)
-#     user = QuestionsDatabase.instance.execute(<<-SQL, id)
-#       SELECT
-#         *
-#       FROM
-#         users
-#       WHERE
-#         id = ?
-#     SQL
-#     User.new(user.first)
-#   end
-#
-#   def initialize(options, table = nil)
-#     @id = options['id']
-#     @table = table
-#   end
-# end
-
-class User
-  attr_accessor :id, :fname, :lname
-
-  def self.find_by_id(id)
-    user = QuestionsDatabase.instance.execute(<<-SQL, id)
-      SELECT
-        *
-      FROM
-        users
-      WHERE
-        id = ?
-    SQL
-    User.new(user.first)
+def tableize(str)
+  if str[-1] == 'y'
+    str.downcase.chop + "ies"
+  else
+    str.downcase + "s"
   end
+end
+
+# Kind of works
+def sanitize(str)
+  str.delete(";")
+end
+
+def make_query(table, where)
+  "SELECT\
+      *\
+    FROM\
+      #{tableize(table)}\
+    WHERE\
+      #{where}"
+end
+
+class ModelBase
+  attr_accessor :id, :table
+
+  # def self.find_by_id(id)
+  #   base = QuestionsDatabase.instance.execute(<<-SQL, id)
+  #     SELECT
+  #       *
+  #     FROM
+  #       #{tableize(self.to_s)}
+  #     WHERE
+  #       id = ?
+  #   SQL
+  #   return nil unless base.size > 0
+  #
+  #   self.new(base.first)
+  # end
+
+  def self.where(options)
+    res = []
+    db = QuestionsDatabase.instance
+    if options.is_a?(String)
+      options = sanitize(options)
+      query = make_query(self.to_s, options)
+      base = db.execute(query)
+      res += base
+    else
+      options.each do |column,val|
+        # debugger
+        column = column.to_s
+        column = sanitize(column)
+        val = sanitize(val)
+        #val = "\'" + val + "\'"
+
+        # query = "SELECT * FROM #{tableize(self.to_s)} WHERE #{column} = #{val}"
+        #
+        # base = QuestionsDatabase.instance.execute(query)
+        query = make_query(self.to_s, "#{column} = #{val}")
+        base = db.execute(query)
+        res += base
+      end
+    end
+    objs = res.map {|option| self.new(option)}
+
+    i = 0
+    j = i+1
+    while i < objs.size-1
+      while j < objs.size
+        i_keys = objs[i].instance_variables
+        i_vals = objs[i].get_instance_variables
+        j_keys = objs[j].instance_variables
+        j_vals = objs[j].get_instance_variables
+        if i_vals == j_vals && i_keys == j_keys
+          objs.delete_at(j)
+          j -= 1
+        end
+
+        j += 1
+      end
+      i += 1
+    end
+
+    return nil if objs.empty?
+
+    objs
+  end
+
+  def initialize(options)
+    @id = options['id']
+  end
+
+  def [](key)
+    return instance_variable_get(key)
+  end
+
+  def get_instance_variables
+    ret = []
+    instance_variables.each { |key| ret << self[key] }
+    ret
+  end
+
+  def self.method_missing(method_name, *args)
+    method_name = method_name.to_s
+    if method_name.start_with?("find_by_")
+      # attributes_string is, e.g., "first_name_and_last_name"
+      attributes_string = method_name[("find_by_".length)..-1]
+
+      # attribute_names is, e.g., ["first_name", "last_name"]
+      attribute_names = attributes_string.split("_and_")
+
+      unless attribute_names.length == args.length
+        raise "unexpected # of arguments"
+      end
+
+      search_conditions = {}
+      attribute_names.each_index do |i|
+        search_conditions[attribute_names[i]] = args[i]
+      end
+
+      # Imagine search takes a hash of search conditions and finds
+      # objects with the given properties.
+      obj = self.where(search_conditions)
+
+      return nil unless obj
+      return obj.first if obj.size == 1
+
+      obj
+    else
+      # complain about the missing method
+      super
+    end
+  end
+end
+
+class User < ModelBase
+  attr_accessor :id, :fname, :lname
 
   def self.find_by_name(fname, lname)
     user = QuestionsDatabase.instance.execute(<<-SQL, fname, lname)
@@ -63,7 +165,7 @@ class User
   end
 
   def initialize(options)
-    @id = options['id']
+    super
     @fname = options['fname']
     @lname = options['lname']
   end
@@ -131,22 +233,8 @@ class User
   end
 end
 
-class Question
+class Question < ModelBase
   attr_accessor :id, :title, :body, :author_id
-
-  def self.find_by_id(id)
-    question = QuestionsDatabase.instance.execute(<<-SQL, id)
-      SELECT
-        *
-      FROM
-        questions
-      WHERE
-        id = ?
-    SQL
-    return nil unless question.length > 0
-
-    Question.new(question.first)
-  end
 
   def self.find_by_title(title)
     question = QuestionsDatabase.instance.execute(<<-SQL, title)
@@ -200,7 +288,7 @@ class Question
   # end
 
   def initialize(options)
-    @id = options['id']
+    super
     @title = options['title']
     @body = options['body']
     @author_id = options['author_id']
@@ -328,22 +416,8 @@ class QuestionFollow
   end
 end
 
-class Reply
+class Reply < ModelBase
   attr_accessor :id, :question_id, :parent_id, :author_id, :body
-
-  def self.find_by_id(id)
-    reply = QuestionsDatabase.instance.execute(<<-SQL, id)
-      SELECT
-        *
-      FROM
-        replies
-      WHERE
-        id = ?
-    SQL
-    return nil unless reply.length > 0
-
-    Reply.new(reply.first)
-  end
 
   def self.find_by_user_id(user_id)
     replies = QuestionsDatabase.instance.execute(<<-SQL, user_id)
@@ -390,7 +464,7 @@ class Reply
   end
 
   def initialize(options)
-    @id = options['id']
+    super
     @question_id = options['question_id']
     @parent_id = options['parent_id']
     @author_id = options['author_id']
@@ -536,9 +610,12 @@ class QuestionLike
 end
 
 if __FILE__ == $PROGRAM_NAME
-  p Reply.find_by_id(3).parent_reply
-  p QuestionLike.num_likes_for_question_id(1)
-  p User.find_by_id(1).average_karma
-  p User.find_by_id(2).average_karma
+  p User.where("fname = 'Victor'")
+  # p User.find_by_id(1)
+  # p Reply.find_by_id(3).parent_reply
+  # p User.where({fname: 'Victor', lname: 'Aw'})
+  # # p QuestionLike.num_likes_for_question_id(1)
+  # p User.find_by_id(1).average_karma
+  # p User.find_by_id(2).average_karma
 
 end
