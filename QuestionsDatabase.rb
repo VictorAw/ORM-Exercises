@@ -34,22 +34,32 @@ def make_query(table, where)
       #{where}"
 end
 
+def remove_repeats(objs)
+  i = 0
+  j = i+1
+  while i < objs.size-1
+    while j < objs.size
+      i_keys = objs[i].instance_variables
+      i_vals = objs[i].get_instance_variables
+      j_keys = objs[j].instance_variables
+      j_vals = objs[j].get_instance_variables
+      if i_vals == j_vals && i_keys == j_keys
+        objs.delete_at(j)
+        j -= 1
+      end
+
+      j += 1
+    end
+    i += 1
+  end
+
+  return nil if objs.empty?
+
+  objs
+end
+
 class ModelBase
   attr_accessor :id, :table
-
-  # def self.find_by_id(id)
-  #   base = QuestionsDatabase.instance.execute(<<-SQL, id)
-  #     SELECT
-  #       *
-  #     FROM
-  #       #{tableize(self.to_s)}
-  #     WHERE
-  #       id = ?
-  #   SQL
-  #   return nil unless base.size > 0
-  #
-  #   self.new(base.first)
-  # end
 
   def self.where(options)
     res = []
@@ -61,15 +71,9 @@ class ModelBase
       res += base
     else
       options.each do |column,val|
-        # debugger
         column = column.to_s
         column = sanitize(column)
         val = sanitize(val)
-        #val = "\'" + val + "\'"
-
-        # query = "SELECT * FROM #{tableize(self.to_s)} WHERE #{column} = #{val}"
-        #
-        # base = QuestionsDatabase.instance.execute(query)
         query = make_query(self.to_s, "#{column} = #{val}")
         base = db.execute(query)
         res += base
@@ -77,27 +81,8 @@ class ModelBase
     end
     objs = res.map {|option| self.new(option)}
 
-    i = 0
-    j = i+1
-    while i < objs.size-1
-      while j < objs.size
-        i_keys = objs[i].instance_variables
-        i_vals = objs[i].get_instance_variables
-        j_keys = objs[j].instance_variables
-        j_vals = objs[j].get_instance_variables
-        if i_vals == j_vals && i_keys == j_keys
-          objs.delete_at(j)
-          j -= 1
-        end
+    remove_repeats(objs)
 
-        j += 1
-      end
-      i += 1
-    end
-
-    return nil if objs.empty?
-
-    objs
   end
 
   def initialize(options)
